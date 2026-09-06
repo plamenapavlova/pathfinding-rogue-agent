@@ -22,8 +22,10 @@ struct WorldConfig {
   std::vector<std::string> tele_symbols;
   std::vector<unsigned> tele_dests;
   std::string agent_start;
+  std::string treasure;
   std::vector<unsigned> wall_color;
   std::vector<unsigned> open_color;
+  int round_cost;
   int move_cost;
   int turn_cost;
   int tele_cost;
@@ -33,6 +35,9 @@ struct WorldConfig {
   int death_cost;
   int disarm_cost;
   int inactive_cost;
+  int treasure_cost;
+  int notreasure_cost;
+  double slip_chance;
 };
 
 struct AgentSight {
@@ -52,13 +57,13 @@ inline const Vec2 WEST(-1, 0);
 inline const std::vector<std::string> VALID_CMDS = {
   "F", "B",
   "L", "R",
-  "U"
+  "U", "T",
+  "D"
 };
 
 enum class Result {
   NONE,
-  TELEPORT,
-  MINE_FOUND
+  TELEPORT
 };
 
 

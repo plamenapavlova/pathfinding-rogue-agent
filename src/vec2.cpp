@@ -45,6 +45,6 @@ void Vec2::SwapXY() {
     x = y;
     y = temp;
 }
-std::string Vec2::to_string() {
+std::string Vec2::to_string() const {
     return std::to_string(x) + "," + std::to_string(y);
 }

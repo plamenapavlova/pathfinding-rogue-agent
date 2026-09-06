@@ -17,5 +17,5 @@ struct Vec2 {
   double Distance(const Vec2& o) const;
   int ManhattanDistance(const Vec2& o) const;
   void SwapXY();
-  std::string to_string();
+  std::string to_string() const;
 };

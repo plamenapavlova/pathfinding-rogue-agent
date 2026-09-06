@@ -8,10 +8,11 @@ AI::AI(
     unsigned id, 
     unsigned agent_speed,
     std::mt19937_64 * rng,
-    Symbols symbols
+    Symbols symbols,
+    Costs costs
 )
   : id(id), agent_speed(agent_speed), rng(rng),
-    symbols(symbols)
+    symbols(symbols), costs(costs)
 {}
 
 void AI::PrintPercepts(const Percepts & percepts) {
@@ -33,6 +34,10 @@ void AI::PrintPercepts(const Percepts & percepts) {
   for(std::vector<std::string>::const_iterator it = percepts.right.begin();
       it != percepts.right.end(); it++) std::cout << *it << " ";
   std::cout << std::endl;
+  std::cout << "Others:\n";
+  for(size_t i = 0; i < percepts.others.size(); i++) {
+    std::cout << "   " << i << ": " << percepts.others[i].to_string() << std::endl;
+  }
 }
 
 std::vector<std::string> AI::Run(
@@ -42,10 +47,12 @@ std::vector<std::string> AI::Run(
   std::cout << "------------------------------------------------\n";
   std::cout << "AGENT ID: " << id << std::endl;
   PrintPercepts(percepts);
-  std::vector<std::string> cmds {"F", "B", "L", "R", "U"};
-  std::shuffle(cmds.begin(), cmds.end(), *rng);
+  if(id==0) {
+    std::vector<std::string> cmds {"R", "F", "U"};
+  //std::shuffle(cmds.begin(), cmds.end(), *rng);
   std::cout << "CMD:      " << cmds[0] << std::endl;
-  return {};
+  return cmds;
+  } else return {"R", "F", "F", "T"};
 }
 
 

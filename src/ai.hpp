@@ -17,13 +17,15 @@ protected:
   unsigned agent_speed;
   std::mt19937_64* rng;
   Symbols symbols;
+  Costs costs;
 public:
   AI();
   AI(
      unsigned id, 
      unsigned agent_speed,
      std::mt19937_64* rng,
-     Symbols symbols);
+     Symbols symbols,
+     Costs costs);
   void PrintPercepts(const Percepts & percepts);
   std::vector<std::string> Run(
 			       Percepts & percepts,

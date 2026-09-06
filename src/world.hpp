@@ -30,9 +30,13 @@ struct World {
   std::vector<Vec2> agent_starts;
   std::vector<Teleporter> teleporters;
   std::vector<Vec2> mine_locations;
+  std::vector<Vec2> treasure_locations;
   unsigned num_mines;
   unsigned num_mines_remaining;
+  unsigned num_treasures;
+  unsigned num_treasures_remaining;
   Symbols symbols;
+  Costs costs;
 
   World();
   bool LoadConfig(std::string & filename);
@@ -49,8 +53,13 @@ struct World {
   unsigned GetNumMines() const;
   unsigned GetNumMinesRemaining() const;
   void ChangeNumMinesRemaining(unsigned amt);
+  unsigned GetNumTreasures() const;
+  unsigned GetNumTreasuresRemaining() const;
+  void ChangeNumTreasuresRemaining(unsigned amt);
   bool HasHitMine(const Vec2 & loc);
   bool DisarmMine(const Vec2 & loc);
   int ManhattanDistanceToNearestMine(const Vec2 & loc);
+  bool TakeTreasure(const Vec2 & loc);
   Symbols GetSymbols() const;
+  Costs GetCosts() const;
 };

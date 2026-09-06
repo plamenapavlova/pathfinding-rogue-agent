@@ -3,7 +3,7 @@
 Agent::Agent() {}
 Agent::Agent(
 	     Vec2 loc, Vec2 heading, AgentSight sight, unsigned id, std::mt19937_64* rng,
-	     unsigned speed, AgentType type, Symbols symbols) 
+	     unsigned speed, AgentType type, Symbols symbols, Costs costs) 
   : loc(loc), heading(heading), sight(sight), id(id), state(AgentState::Active),
     speed(speed), type(type), points(0)
 {
@@ -13,7 +13,7 @@ Agent::Agent(
   // else if (type == AgentType::HOUND) {
   //     ai = std::make_unique<HoundAI>(id, speed, rng);
   // }
-  ai = std::make_unique<AI>(id, speed, rng, symbols);
+  ai = std::make_unique<AI>(id, speed, rng, symbols, costs);
 }
 unsigned Agent::GetID() const { return id; }
 Vec2 Agent::GetLoc() const { return loc; }
@@ -33,6 +33,24 @@ void Agent::SetHeading(Vec2 v) {
 }
 void Agent::AddPoints(int p) { points += p; }
 AgentSight Agent::GetSight() { return sight; }
+Vec2 Agent::GetRelativeDirTo(Vec2 v) {
+  Vec2 diff = v - loc;
+  diff.y = -diff.y;
+  if(heading==SOUTH) {
+    diff.x = -diff.x;
+    diff.y = -diff.y;
+  } else if(heading==EAST) {
+    int temp = diff.x;
+    diff.x = -diff.y;
+    diff.y = temp;
+  } else if(heading==WEST) {
+    int temp = -diff.x;
+    diff.x = diff.y;
+    diff.y = temp;
+  }
+  return diff;
+}
+
 std::vector<std::string> Agent::RunAI(
 				      Percepts & percepts,
 				      AgentComm * comms

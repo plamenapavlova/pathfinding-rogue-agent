@@ -29,7 +29,8 @@
 void loop(
 	  World & world, 
 	  std::vector<Agent> & agents,
-	  int update_delay, int max_turns);
+	  int update_delay, int max_turns,
+	  std::mt19937_64 & rng);
 
 /* Called when the game ends. */
 void game_over(
@@ -61,12 +62,15 @@ int main(int argc, char **argv) {
   /**************************************************************
     SET UP THE WORLD
   */
-  std::string world_filename = "default_world";
+  std::string world_filename = "default_world.txt";
+  std::string world_config_filename = "default_world_config.json";
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-w") == 0) {
       if(argc > i+1) {
-	world_filename = std::string(argv[i+1]);
+	std::string base = std::string(argv[i+1]);
+	world_filename = base+".txt";
+	world_config_filename = base+"_config.json";
       } else {
 	std::cerr << "Missing filename after -w\n";
 	return 1;
@@ -125,7 +129,7 @@ int main(int argc, char **argv) {
     
   World world;
     
-  if(!world.LoadConfig(config_filename)) {
+  if(!world.LoadConfig(world_config_filename)) {
     return 1;
   }
   if(!world.LoadMap(world_filename)) {
@@ -173,7 +177,8 @@ int main(int argc, char **argv) {
             &rng,
             world.config.agent_speed,
             AgentType::AGENT,
-            world.GetSymbols()
+            world.GetSymbols(),
+	    world.GetCosts()
 	    );
 
     agents.push_back(std::move(a));
@@ -193,7 +198,7 @@ int main(int argc, char **argv) {
   /***************************************************************
     RUN SIMULATION
   */
-  loop(world, agents, update_delay, max_turns);
+  loop(world, agents, update_delay, max_turns, rng);
 
 
 }
@@ -201,17 +206,21 @@ int main(int argc, char **argv) {
 void loop(
 	  World& world,
 	  std::vector<Agent>& agents,
-	  int update_delay, int max_turns) {
+	  int update_delay, int max_turns,
+	  std::mt19937_64 & rng) {
 
   bool finished = false;
   std::string finish_reason = "NONE";
-  int turn = 1;
+  int turn = 0;
 
   unsigned remaining_mines = world.GetNumMines();
+  unsigned remaining_treasures = world.GetNumTreasures();
   std::vector<int> agent_points;
   for(size_t i = 0; i < agents.size(); i++) {
     agent_points.push_back(0);
   }
+
+  std::uniform_real_distribution<double> slipDist(0,1);
 
   auto last_update = std::chrono::high_resolution_clock::now();
 
@@ -232,6 +241,7 @@ void loop(
       if(event->is<sf::Event::KeyPressed>()) {
 	const auto *key = event->getIf<sf::Event::KeyPressed>();
 	if (key->code == sf::Keyboard::Key::Escape) dspl::Close();
+	else if(key->code == sf::Keyboard::Key::Q) finished = true;
 	else if (key->code == sf::Keyboard::Key::P) paused = !paused;
       }
     }
@@ -245,6 +255,8 @@ void loop(
 	if (std::chrono::duration_cast<std::chrono::milliseconds>(cur_time - last_update).count() > update_delay) {
 
 	  size_t i = cur_agent_index;
+
+	  agents[i].AddPoints(world.config.round_cost);
 	  
 	  AgentSight sight = agents[i].GetSight();
 	  Vec2 location = agents[i].GetLoc();
@@ -267,6 +279,12 @@ void loop(
                     
 	  percepts.detector = world.ManhattanDistanceToNearestMine(location);
 
+	  percepts.others.clear();
+	  for(size_t a = 0; a < agents.size(); a++) {
+	    Vec2 dir = agents[i].GetRelativeDirTo(agents[a].GetLoc());
+	    percepts.others.push_back(dir);
+	  }
+
 	  // Call the AI
 	  std::vector<std::string> cmds = agents[i].RunAI(percepts, &comms);
 	  if(cmds.empty()) {
@@ -275,7 +293,13 @@ void loop(
 
 	  // Handle AI commands.
 	  unsigned s = 0;
-	  while (s < agents[i].GetSpeed() && s < cmds.size()) {
+	  unsigned max_cmds = agents[i].GetSpeed();
+	  while (s < max_cmds && s < cmds.size()) {
+	    // Does the agent slip? If so, it fails
+	    // to perform this command.
+	    if(slipDist(rng) < world.config.slip_chance) {
+	      s++; continue;
+	    }
 	    std::string cmd = cmds[s];
 	    location = agents[i].GetLoc();
 	    forward = agents[i].GetHeading();
@@ -290,6 +314,7 @@ void loop(
 		if(world.HasHitMine(agents[i].GetLoc())) {
 		  agents[i].AddPoints(world.config.death_cost);
 		  agents[i].SetAgentState(AgentState::Dead);
+		  break; // stop processing commands
 		} else {
 		  agents[i].AddPoints(world.config.move_cost);
 		}
@@ -308,6 +333,7 @@ void loop(
 		if(world.HasHitMine(agents[i].GetLoc())) {
 		  agents[i].AddPoints(world.config.death_cost);
 		  agents[i].SetAgentState(AgentState::Dead);
+		  break; // stop processing commands
 		} else {
 		  agents[i].AddPoints(world.config.move_cost);
 		}
@@ -336,6 +362,15 @@ void loop(
 	      } else {
 		// Used non-existent teleporter.
 		agents[i].AddPoints(world.config.notele_cost);
+	      }
+	    } else if (cmd == "T") {
+	      if(world.TakeTreasure(location)) {
+		agents[i].AddPoints(world.config.treasure_cost);
+		if(world.GetNumTreasuresRemaining() <= 0) {
+		  break; // stop processing commands, game over
+		}
+	      } else {
+		agents[i].AddPoints(world.config.notreasure_cost);
 	      }
 	    }
 	    // Disarm command
@@ -397,9 +432,9 @@ void loop(
       finish_reason = "MAX TURNS REACHED";
     }
 
-    if(world.GetNumMinesRemaining() <= 0) {
+    if(world.GetNumTreasuresRemaining() <= 0) {
       finished = true;
-      finish_reason = "ALL MINES DISARMED OR EXPLODED";
+      finish_reason = "ALL TREASURES HAVE BEEN COLLECTED";
     }
 
     // Second, are any agents left in the environment?
@@ -455,5 +490,10 @@ void game_over(
   y = 730.f;
   total = world.GetNumMinesRemaining();
   msg = "Mines Left: " + std::to_string(total);
+  dspl::DrawMsg(msg, x, y, 15, sf::Color::White);
+
+  y+=20.f;
+  total = world.GetNumTreasuresRemaining();
+  msg = "Treasures Left: " + std::to_string(total);
   dspl::DrawMsg(msg, x, y, 15, sf::Color::White);
 }

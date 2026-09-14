@@ -47,12 +47,10 @@ std::vector<std::string> AI::Run(
   std::cout << "------------------------------------------------\n";
   std::cout << "AGENT ID: " << id << std::endl;
   PrintPercepts(percepts);
-  if(id==0) {
-    std::vector<std::string> cmds {"R", "F", "U"};
-  //std::shuffle(cmds.begin(), cmds.end(), *rng);
+  std::vector<std::string> cmds {"R", "B", "L", "F", "U", "D"};
+  std::shuffle(cmds.begin(), cmds.end(), *rng);
   std::cout << "CMD:      " << cmds[0] << std::endl;
-  return cmds;
-  } else return {"R", "F", "F", "T"};
+  return {cmds[0]};
 }
 
 

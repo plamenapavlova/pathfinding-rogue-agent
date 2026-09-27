@@ -44,7 +44,6 @@ inline unsigned screen_width = 1000;
 inline unsigned screen_height = 850;
 
 int main(int argc, char **argv) {
-
   /**************************************************************
     VARS
   */
@@ -62,8 +61,8 @@ int main(int argc, char **argv) {
   /**************************************************************
     SET UP THE WORLD
   */
-  std::string world_filename = "default_world.txt";
-  std::string world_config_filename = "default_world_config.json";
+  std::string world_filename = "worldB.txt";
+  std::string world_config_filename = "worldB_config.json";
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-w") == 0) {
@@ -125,7 +124,7 @@ int main(int argc, char **argv) {
     }
   }
 
-    
+
     
   World world;
     

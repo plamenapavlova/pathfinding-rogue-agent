@@ -148,6 +148,22 @@ std::string AI::MoveTowardTarget(Vec2 target, Percepts& percepts) {
     return "L";
 }
 
+int AI::CalculateUnexploredCells(Vec2 direction) {
+    static const int EXPLORE_DIST = 15;
+    Vec2 perpendicular_direction = Vec2(direction.y, -direction.x);
+    int unexplored_cells = 0;
+
+    for (int i = 1; i <= EXPLORE_DIST; i++) {
+        Vec2 center_cell = my_location + direction * i;
+        Vec2 adj_left = center_cell - perpendicular_direction;
+        Vec2 adj_right = center_cell + perpendicular_direction;
+        for (const auto& cell : { center_cell, adj_left, adj_right }) {
+            if (known_map.find({ cell.x, cell.y }) != known_map.end()) continue;
+            unexplored_cells += 1;
+        }
+    }
+    return unexplored_cells;
+}
 
 
 std::string AI::DecideAction(Percepts& percepts) {
@@ -205,46 +221,31 @@ std::string AI::DecideAction(Percepts& percepts) {
 	bool left_safe = CheckSafety(left_cell) && !percepts.left.empty() && percepts.left[0] != symbols.wall && !left_is_dead_end;
 	bool forward_safe = CheckSafety(forward_cell) && !percepts.forward.empty() && percepts.forward[0] != symbols.wall && !forward_is_dead_end;
 
-
     
-  
+    int forward_unexplored;
+    if (forward_safe) forward_unexplored = CalculateUnexploredCells(my_heading);
+    else forward_unexplored = -1;
 
+    int right_unexplored;
+    if (right_safe) right_unexplored = CalculateUnexploredCells(right);
+    else right_unexplored = -1;
 
-    
-	//chech which directions have been visited
-	bool forward_visited = visited_cells.count({ forward_cell.x, forward_cell.y }) > 0;
-	bool right_visited = visited_cells.count({ right_cell.x, right_cell.y }) > 0;
-	bool left_visited = visited_cells.count({ left_cell.x, left_cell.y }) > 0;
+    int left_unexplored;
+    if (left_safe) left_unexplored = CalculateUnexploredCells(left);
+    else left_unexplored = -1;
 
-    //-->preferred options
-    bool forward_pref = forward_safe && !forward_visited;
-    bool right_pref = right_safe && !right_visited;
-	bool left_pref = left_safe && !left_visited;
+    int best_unexplored = std::max({ forward_unexplored, right_unexplored, left_unexplored });
+    std::vector<std::string> candidates;
+    if (forward_safe && forward_unexplored == best_unexplored) candidates.push_back("F");
+    if (right_safe && right_unexplored == best_unexplored) candidates.push_back("R");
+    if (left_safe && left_unexplored == best_unexplored) candidates.push_back("L");
 
-    std::vector<std::string> pref_directions;
-    if (right_pref) pref_directions.push_back("R");
-    if (left_pref) pref_directions.push_back("L");
-    if (forward_pref) pref_directions.push_back("F");
-
-	//randonmy choose from preferred options
-    if (!pref_directions.empty()) {
-        std::shuffle(pref_directions.begin(), pref_directions.end(), *rng);
-        if (pref_directions[0] == "L" || pref_directions[0] == "R") pending_commands.push_back("F");
-        return pref_directions[0];
+    if (!candidates.empty()) {
+        std::shuffle(candidates.begin(), candidates.end(), *rng);
+        std::string winner = candidates[0];
+        if (winner == "L" || winner == "R") pending_commands.push_back("F");
+        return winner;
     }
-
-	std::vector<std::string> safe_directions;
-	if (right_safe) safe_directions.push_back("R");
-    if (left_safe) safe_directions.push_back("L");
-	if (forward_safe) safe_directions.push_back("F");
-
-	//fallback to safe options 
-    if (!safe_directions.empty()) {
-		std::shuffle(safe_directions.begin(), safe_directions.end(), *rng);
-        if (safe_directions[0] == "L" || safe_directions[0] == "R") pending_commands.push_back("F");
-		return safe_directions[0];
-    }
-    
 
 	//if no safe directions, mark current cell as dead end and return
     dead_ends.insert({my_location.x, my_location.y});

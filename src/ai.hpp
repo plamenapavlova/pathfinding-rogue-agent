@@ -60,7 +60,7 @@ public:
   std::string DecideAction(Percepts& percepts);
   std::optional<Vec2> FindNearestTreasure();
   std::string MoveTowardTarget(Vec2 target, Percepts& percepts);
-  
+  int CalculateUnexploredCells(Vec2 direction);
 
 };
 

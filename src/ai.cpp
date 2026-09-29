@@ -247,6 +247,41 @@ std::string AI::DecideAction(Percepts& percepts) {
         return winner;
     }
 
+    /*
+    //chech which directions have been visited
+    bool forward_visited = visited_cells.count({ forward_cell.x, forward_cell.y }) > 0;
+    bool right_visited = visited_cells.count({ right_cell.x, right_cell.y }) > 0;
+    bool left_visited = visited_cells.count({ left_cell.x, left_cell.y }) > 0;
+
+    //-->preferred options
+    bool forward_pref = forward_safe && !forward_visited;
+    bool right_pref = right_safe && !right_visited;
+    bool left_pref = left_safe && !left_visited;
+
+    std::vector<std::string> pref_directions;
+    if (right_pref) pref_directions.push_back("R");
+    if (left_pref) pref_directions.push_back("L");
+    if (forward_pref) pref_directions.push_back("F");
+
+    //randonmy choose from preferred options
+    if (!pref_directions.empty()) {
+        std::shuffle(pref_directions.begin(), pref_directions.end(), *rng);
+        if (pref_directions[0] == "L" || pref_directions[0] == "R") pending_commands.push_back("F");
+        return pref_directions[0];
+    }
+
+    std::vector<std::string> safe_directions;
+    if (right_safe) safe_directions.push_back("R");
+    if (left_safe) safe_directions.push_back("L");
+    if (forward_safe) safe_directions.push_back("F");
+
+    //fallback to safe options
+    if (!safe_directions.empty()) {
+        std::shuffle(safe_directions.begin(), safe_directions.end(), *rng);
+        if (safe_directions[0] == "L" || safe_directions[0] == "R") pending_commands.push_back("F");
+        return safe_directions[0];
+    }
+    */
 	//if no safe directions, mark current cell as dead end and return
     dead_ends.insert({my_location.x, my_location.y});
 	pending_commands.push_back("R");    

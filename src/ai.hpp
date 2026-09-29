@@ -24,6 +24,7 @@ protected:
   Symbols symbols;
   Costs costs;
 
+
   //new
   Vec2 my_location= Vec2(0, 0);//starting location
   Vec2 my_heading = Vec2(0, -1);//starting heading
@@ -37,6 +38,9 @@ protected:
   std::set<std::pair<int, int>> visited_cells;//which cells has the agent physically occupied
   
 
+
+  int max_turn;
+
 public:
   AI();
   AI(
@@ -44,7 +48,8 @@ public:
      unsigned agent_speed,
      std::mt19937_64* rng,
      Symbols symbols,
-     Costs costs);
+     Costs costs,
+     int max_turn);
   void PrintPercepts(const Percepts & percepts);
   std::vector<std::string> Run(
 			       Percepts & percepts,

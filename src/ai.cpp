@@ -106,12 +106,12 @@ void AI::UpdateMap(Percepts& percepts) {
         known_map[{cell_loc.x, cell_loc.y}] = percepts.right[i];
     }
 }
-std::optional<Vec2> AI::FindNearestTreasure() {
+std::optional<Vec2> AI::FindNearestObject(const std::string& object_symbol) {
     std::optional<Vec2> nearest;
 	int shortest_dist = std::numeric_limits<int>::max();
 
     for (const auto& entry : known_map) {
-        if (entry.second == symbols.treasure) {
+        if (entry.second == object_symbol) {
             int dist = my_location.ManhattanDistance(Vec2(entry.first.first, entry.first.second));
             if (dist < shortest_dist) {
                 shortest_dist = dist;
@@ -156,6 +156,13 @@ int AI::CalculateUnexploredCells(Vec2 direction) {
 
     for (int i = 1; i <= EXPLORE_DIST; i++) {
         Vec2 center_cell = my_location + direction * i;
+
+        //check for walls 
+        auto it = known_map.find({center_cell.x, center_cell.y});
+        if (it != known_map.end()) {
+            if (it->second == symbols.wall) break;
+        }
+
         Vec2 adj_left = center_cell - perpendicular_direction;
         Vec2 adj_right = center_cell + perpendicular_direction;
         for (const auto& cell : { center_cell, adj_left, adj_right }) {
@@ -164,6 +171,40 @@ int AI::CalculateUnexploredCells(Vec2 direction) {
         }
     }
     return unexplored_cells;
+}
+
+std::optional<Vec2> AI::DecideSeekTeleporter(Percepts& percepts) {
+    static const double WAIT_FRACTION = 0.15;
+    static const double END_FRACTION = 0.80;
+    static const double BUFFER_FRACTION = 0.3;//max turns to reach teleporter
+
+    int remaining_turns = max_turn - current_turn;
+    int tel_min_turns = int(max_turn * WAIT_FRACTION);
+    int tel_max_turns = int(max_turn * END_FRACTION);
+    int max_acc_dist = int(remaining_turns * BUFFER_FRACTION);
+
+    std::optional<Vec2> nearest_known_tel = std::nullopt;
+    int shortest_dist = std::numeric_limits<int>::max();
+
+    for (const std::string& tel_symbol : symbols.teleporters) {
+        std::optional<Vec2> candidate = FindNearestObject(tel_symbol);
+        if (candidate.has_value()) {
+            int distance = my_location.ManhattanDistance(candidate.value());
+            if (distance < shortest_dist) {
+                shortest_dist = distance;
+                nearest_known_tel = candidate;
+            }
+        }
+    }
+
+    if (!nearest_known_tel.has_value()) return std::nullopt;
+    int tel_dist = my_location.ManhattanDistance(nearest_known_tel.value());
+    if (current_turn >= tel_min_turns && current_turn <= tel_max_turns && tel_dist <= max_acc_dist) {
+        return nearest_known_tel;
+    }
+    return std::nullopt;
+
+    
 }
 
 
@@ -175,9 +216,10 @@ std::string AI::DecideAction(Percepts& percepts) {
         return "D";
     }
 
+
     //treasure mode
     if (!current_goal.has_value()) {
-        current_goal = FindNearestTreasure();
+        current_goal = FindNearestObject(symbols.treasure);
     }
     if (current_goal.has_value()) {
 		std::string action = MoveTowardTarget(*current_goal, percepts);
@@ -188,14 +230,63 @@ std::string AI::DecideAction(Percepts& percepts) {
         }
         return action;
     }
-    
-    
+    Vec2 right = Vec2(-my_heading.y, my_heading.x);
+    Vec2 left = Vec2(my_heading.y, -my_heading.x);
+
+    Vec2 right_cell = my_location + right;
+    Vec2 left_cell = my_location + left;
+
+    //check which directions are dead ends
+    bool forward_is_dead_end = dead_ends.count({ forward_cell.x, forward_cell.y }) > 0;
+    bool right_is_dead_end = dead_ends.count({ right_cell.x, right_cell.y }) > 0;
+    bool left_is_dead_end = dead_ends.count({ left_cell.x, left_cell.y }) > 0;
+
+    //-->safe options
+    bool right_safe = CheckSafety(right_cell) && !percepts.right.empty() && percepts.right[0] != symbols.wall && !right_is_dead_end;
+    bool left_safe = CheckSafety(left_cell) && !percepts.left.empty() && percepts.left[0] != symbols.wall && !left_is_dead_end;
+    bool forward_safe = CheckSafety(forward_cell) && !percepts.forward.empty() && percepts.forward[0] != symbols.wall && !forward_is_dead_end;
+
+    static const int MAX_LAST_VISITED_CELLS = 9;
+    last_visited_cells.push_back({ my_location.x, my_location.y });
+    if (last_visited_cells.size() > MAX_LAST_VISITED_CELLS) {
+        last_visited_cells.pop_front();
+    }
+    int repeated_visits = std::count(last_visited_cells.begin(), last_visited_cells.end(),
+        std::make_pair(my_location.x, my_location.y));
+    if (repeated_visits >= 3) {
+        std::vector<std::string> candidates;
+        if (right_safe) candidates.push_back("R");
+        if (left_safe) candidates.push_back("L");
+        if (forward_safe) candidates.push_back("F");
+        if (!candidates.empty()) {
+            std::shuffle(candidates.begin(), candidates.end(), *rng);
+            std::string winner = candidates[0];
+            pending_commands.clear();
+            if (winner == "L" || winner == "R") pending_commands.push_back("F");
+            return winner;
+        }
+
+    }
+
     //explore mode
+    //pending commands
     if (!pending_commands.empty()) {
 		std::string next_cmd = pending_commands.front();
         pending_commands.pop_front();
         return next_cmd;
     }
+
+    //seek or not a teleporter
+    std::optional<Vec2> target_tel = DecideSeekTeleporter(percepts);//recomputed every turn
+    if (target_tel.has_value()) {
+        std::string action= MoveTowardTarget(target_tel.value(), percepts);
+        if (action == "reached") return "U";
+		return action;
+    }
+    //draw a new map
+    //stores teleporters links
+
+    
 
     //dead end cells
     Vec2 backward_cell = my_location - my_heading;
@@ -206,23 +297,7 @@ std::string AI::DecideAction(Percepts& percepts) {
         dead_ends.insert({ my_location.x, my_location.y });
     }
 
-    Vec2 right = Vec2(-my_heading.y, my_heading.x);
-    Vec2 left = Vec2(my_heading.y, -my_heading.x);
 
-    Vec2 right_cell = my_location + right;
-	Vec2 left_cell = my_location + left;
-
-    //check which directions are dead ends
-    bool forward_is_dead_end = dead_ends.count({ forward_cell.x, forward_cell.y }) > 0;
-    bool right_is_dead_end = dead_ends.count({ right_cell.x, right_cell.y }) > 0;
-    bool left_is_dead_end = dead_ends.count({ left_cell.x, left_cell.y }) > 0;
-
-    //-->safe options
-    bool right_safe = CheckSafety(right_cell) && !percepts.right.empty() && percepts.right[0] !=symbols.wall && !right_is_dead_end;
-	bool left_safe = CheckSafety(left_cell) && !percepts.left.empty() && percepts.left[0] != symbols.wall && !left_is_dead_end;
-	bool forward_safe = CheckSafety(forward_cell) && !percepts.forward.empty() && percepts.forward[0] != symbols.wall && !forward_is_dead_end;
-
-    
     int forward_unexplored;
     if (forward_safe) forward_unexplored = CalculateUnexploredCells(my_heading);
     else forward_unexplored = -1;
@@ -235,11 +310,13 @@ std::string AI::DecideAction(Percepts& percepts) {
     if (left_safe) left_unexplored = CalculateUnexploredCells(left);
     else left_unexplored = -1;
 
-    int best_unexplored = std::max({ forward_unexplored, right_unexplored, left_unexplored });
+    int least_unexplored = std::max({ forward_unexplored, right_unexplored, left_unexplored });
+    
     std::vector<std::string> candidates;
-    if (forward_safe && forward_unexplored == best_unexplored) candidates.push_back("F");
-    if (right_safe && right_unexplored == best_unexplored) candidates.push_back("R");
-    if (left_safe && left_unexplored == best_unexplored) candidates.push_back("L");
+    if (forward_safe && forward_unexplored == least_unexplored) candidates.push_back("F");
+    if (right_safe && right_unexplored == least_unexplored) candidates.push_back("R");
+    if (left_safe && left_unexplored == least_unexplored) candidates.push_back("L");
+
 
     if (!candidates.empty()) {
         std::shuffle(candidates.begin(), candidates.end(), *rng);
@@ -287,11 +364,12 @@ std::string AI::DecideAction(Percepts& percepts) {
     dead_ends.insert({my_location.x, my_location.y});
 	pending_commands.push_back("R");    
 	pending_commands.push_back("F");
-	return "R";
+	return "R"; //??
 
 }
 
 std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
+    current_turn++;
   std::cout << std::unitbuf;
   std::cout << "------------------------------------------------\n";
   std::cout << "AGENT ID: " << id << std::endl;
@@ -300,6 +378,7 @@ std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
   //std::vector<std::string> cmds {"R", "B", "L", "F", "U", "D"};
   //std::shuffle(cmds.begin(), cmds.end(), *rng);
   //std::cout << "CMD:      " << cmds[0] << std::endl;
+  std::cout << "max_turn: " << max_turn << " current_turn: " << current_turn << std::endl;  
 
   UpdateMap(percepts);
   std::cout << "Known map (" << known_map.size() << " cells):\n";

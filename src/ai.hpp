@@ -29,16 +29,16 @@ protected:
   Vec2 my_location= Vec2(0, 0);//starting location
   Vec2 my_heading = Vec2(0, -1);//starting heading
   Vec2 internal_north = Vec2(0, -1);//agent's north direction
+  int current_turn = 0;
   std::optional<Vec2> pending_disarm_cell;//the cell that is being disarmed
   std::optional<Vec2> current_goal; // location of the treasure
+  std::deque<std::pair<int, int>> last_visited_cells; // the last 9 cells the agent has psyhically occupied
   std::deque<std::string> pending_commands; // the commands that the agent has committed to
   std::set<std::pair<int, int>> dead_ends;//stores the ends of the maze
   std::set<std::pair<int, int>> safe_cells;//stores the computed safe cells including walls
   std::map<std::pair<int, int>, std::string> known_map;//what the agent has seen
   std::set<std::pair<int, int>> visited_cells;//which cells has the agent physically occupied
   
-
-
   int max_turn;
 
 public:
@@ -63,9 +63,10 @@ public:
   void UpdateMap(Percepts & percepts);
   //teleporter mapping
   std::string DecideAction(Percepts& percepts);
-  std::optional<Vec2> FindNearestTreasure();
+  std::optional<Vec2> FindNearestObject(const std::string& object_symbol);
   std::string MoveTowardTarget(Vec2 target, Percepts& percepts);
   int CalculateUnexploredCells(Vec2 direction);
+  std::optional<Vec2> DecideSeekTeleporter(Percepts& percepts);
 
 };
 

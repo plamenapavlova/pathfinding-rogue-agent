@@ -60,6 +60,40 @@ void AI::SafeZone(Vec2 loc, int trap_dist) {
         }
     }
 }
+
+AI::AdjacentCells AI::GetAdjacentCells() {
+    AdjacentCells adj_cells;
+
+    Vec2 right = Vec2(-my_heading.y, my_heading.x);
+    Vec2 left = Vec2(my_heading.y, -my_heading.x);
+
+    adj_cells.forward_cell = my_location + my_heading;
+	adj_cells.right_cell = my_location + right;
+	adj_cells.left_cell = my_location + left;
+	adj_cells.backward_cell = my_location - my_heading;
+
+	return adj_cells;
+
+}
+
+AI::SafeDirections AI::GetSafeDirections(const Percepts& percepts, const AdjacentCells& adj_cells) {
+    SafeDirections safe_dirs;
+
+
+    bool forward_is_dead_end = dead_ends.count({ adj_cells.forward_cell.x, adj_cells.forward_cell.y }) > 0;
+    bool right_is_dead_end = dead_ends.count({ adj_cells.right_cell.x, adj_cells.right_cell.y }) > 0;
+    bool left_is_dead_end = dead_ends.count({ adj_cells.left_cell.x, adj_cells.left_cell.y }) > 0;
+    bool backward_is_dead_end = dead_ends.count({ adj_cells.backward_cell.x, adj_cells.backward_cell.y }) > 0;
+
+    //-->safe options
+    safe_dirs.right_safe = CheckSafety(adj_cells.right_cell) && !percepts.right.empty() && percepts.right[0] != symbols.wall && !right_is_dead_end;
+    safe_dirs.left_safe = CheckSafety(adj_cells.left_cell) && !percepts.left.empty() && percepts.left[0] != symbols.wall && !left_is_dead_end;
+    safe_dirs.forward_safe = CheckSafety(adj_cells.forward_cell) && !percepts.forward.empty() && percepts.forward[0] != symbols.wall && !forward_is_dead_end;
+    safe_dirs.backward_safe = CheckSafety(adj_cells.backward_cell) && !percepts.backward.empty() && percepts.backward[0] != symbols.wall && !backward_is_dead_end;
+
+    return safe_dirs;
+}
+
 void AI::UpdateLocation(std::string cmd) {
     if (cmd == "F") {
         my_location = my_location + my_heading;
@@ -80,7 +114,7 @@ void AI::UpdateLocation(std::string cmd) {
     }
 }
 
-void AI::UpdateMap(Percepts& percepts) {
+void AI::UpdateMap(const Percepts& percepts) {
     if (!percepts.current.empty()) {
         known_map[{my_location.x, my_location.y}] = percepts.current[0];
         visited_cells.insert({ my_location.x, my_location.y });
@@ -122,7 +156,7 @@ std::optional<Vec2> AI::FindNearestObject(const std::string& object_symbol) {
 	return nearest;
 }
 
-std::string AI::MoveTowardTarget(Vec2 target, Percepts& percepts) {
+std::string AI::MoveTowardTarget(Vec2 target, const Percepts& percepts) {
     Vec2 diff = target - my_location;
     if (diff.x == 0 && diff.y == 0) {
         return "reached";
@@ -173,7 +207,7 @@ int AI::CalculateUnexploredCells(Vec2 direction) {
     return unexplored_cells;
 }
 
-std::optional<Vec2> AI::DecideSeekTeleporter(Percepts& percepts) {
+std::optional<Vec2> AI::DecideSeekTeleporter(const Percepts& percepts) {
     static const double WAIT_FRACTION = 0.15;
     static const double END_FRACTION = 0.80;
     static const double BUFFER_FRACTION = 0.3;//max turns to reach teleporter
@@ -207,45 +241,31 @@ std::optional<Vec2> AI::DecideSeekTeleporter(Percepts& percepts) {
     
 }
 
+std::optional<std::string> AI::TrapHunting(const Percepts& percepts, const AdjacentCells& adj_cells) {
 
-std::string AI::DecideAction(Percepts& percepts) {
-    Vec2 forward_cell = my_location + my_heading;
-    //trap hunting mode
-    if (percepts.detector == 1 && safe_cells.find({ forward_cell.x, forward_cell.y}) == safe_cells.end()) {
-        pending_disarm_cell = forward_cell;
+    if (percepts.detector == 1 && safe_cells.find({ adj_cells.forward_cell.x, adj_cells.forward_cell.y }) == safe_cells.end()) {
+        pending_disarm_cell = adj_cells.forward_cell;
         return "D";
     }
+    return std::nullopt;
+}
 
-
-    //treasure mode
+std::optional<std::string> AI::TreasureHunting(const Percepts& percepts) {
     if (!current_goal.has_value()) {
         current_goal = FindNearestObject(symbols.treasure);
     }
     if (current_goal.has_value()) {
-		std::string action = MoveTowardTarget(*current_goal, percepts);
+        std::string action = MoveTowardTarget(*current_goal, percepts);
         if (action == "reached") {
             known_map[{my_location.x, my_location.y}] = symbols.open;
-			current_goal = std::nullopt;
+            current_goal = std::nullopt;
             return "T";
         }
         return action;
     }
-    Vec2 right = Vec2(-my_heading.y, my_heading.x);
-    Vec2 left = Vec2(my_heading.y, -my_heading.x);
-
-    Vec2 right_cell = my_location + right;
-    Vec2 left_cell = my_location + left;
-
-    //check which directions are dead ends
-    bool forward_is_dead_end = dead_ends.count({ forward_cell.x, forward_cell.y }) > 0;
-    bool right_is_dead_end = dead_ends.count({ right_cell.x, right_cell.y }) > 0;
-    bool left_is_dead_end = dead_ends.count({ left_cell.x, left_cell.y }) > 0;
-
-    //-->safe options
-    bool right_safe = CheckSafety(right_cell) && !percepts.right.empty() && percepts.right[0] != symbols.wall && !right_is_dead_end;
-    bool left_safe = CheckSafety(left_cell) && !percepts.left.empty() && percepts.left[0] != symbols.wall && !left_is_dead_end;
-    bool forward_safe = CheckSafety(forward_cell) && !percepts.forward.empty() && percepts.forward[0] != symbols.wall && !forward_is_dead_end;
-
+    return std::nullopt;
+}
+std::optional<std::string> AI::LoopDetection(const SafeDirections& safe) {
     static const int MAX_LAST_VISITED_CELLS = 9;
     last_visited_cells.push_back({ my_location.x, my_location.y });
     if (last_visited_cells.size() > MAX_LAST_VISITED_CELLS) {
@@ -255,9 +275,9 @@ std::string AI::DecideAction(Percepts& percepts) {
         std::make_pair(my_location.x, my_location.y));
     if (repeated_visits >= 3) {
         std::vector<std::string> candidates;
-        if (right_safe) candidates.push_back("R");
-        if (left_safe) candidates.push_back("L");
-        if (forward_safe) candidates.push_back("F");
+        if (safe.right_safe) candidates.push_back("R");
+        if (safe.left_safe) candidates.push_back("L");
+        if (safe.forward_safe) candidates.push_back("F");
         if (!candidates.empty()) {
             std::shuffle(candidates.begin(), candidates.end(), *rng);
             std::string winner = candidates[0];
@@ -267,55 +287,50 @@ std::string AI::DecideAction(Percepts& percepts) {
         }
 
     }
+    return std::nullopt;
+}
 
-    //explore mode
-    //pending commands
-    if (!pending_commands.empty()) {
-		std::string next_cmd = pending_commands.front();
-        pending_commands.pop_front();
-        return next_cmd;
-    }
-
-    //seek or not a teleporter
+std::optional<std::string> AI::UseTeleporter(const Percepts& percepts) {
     std::optional<Vec2> target_tel = DecideSeekTeleporter(percepts);//recomputed every turn
     if (target_tel.has_value()) {
-        std::string action= MoveTowardTarget(target_tel.value(), percepts);
+        std::string action = MoveTowardTarget(target_tel.value(), percepts);
         if (action == "reached") return "U";
-		return action;
+        return action;
     }
-    //draw a new map
-    //stores teleporters links
+    return std::nullopt;
+}
 
-    
-
-    //dead end cells
-    Vec2 backward_cell = my_location - my_heading;
-    bool backward_is_dead_end = dead_ends.count({ backward_cell.x, backward_cell.y }) > 0;
+void AI::UpdateDeadEnds(const AdjacentCells& adj_cells, const Percepts& percepts) {
+    bool backward_is_dead_end = dead_ends.count({ adj_cells.backward_cell.x, adj_cells.backward_cell.y }) > 0;
     bool left_is_wall = !percepts.left.empty() && percepts.left[0] == symbols.wall;
     bool right_is_wall = !percepts.right.empty() && percepts.right[0] == symbols.wall;
     if (backward_is_dead_end && left_is_wall && right_is_wall) {
         dead_ends.insert({ my_location.x, my_location.y });
     }
+}
 
+std::optional<std::string> AI::DecideExploration(const SafeDirections& safe) {
+    Vec2 right_dir = Vec2(-my_heading.y, my_heading.x);
+    Vec2 left_dir = Vec2(my_heading.y, -my_heading.x);
 
     int forward_unexplored;
-    if (forward_safe) forward_unexplored = CalculateUnexploredCells(my_heading);
+    if (safe.forward_safe) forward_unexplored = CalculateUnexploredCells(my_heading);
     else forward_unexplored = -1;
 
     int right_unexplored;
-    if (right_safe) right_unexplored = CalculateUnexploredCells(right);
+    if (safe.right_safe) right_unexplored = CalculateUnexploredCells(right_dir);
     else right_unexplored = -1;
 
     int left_unexplored;
-    if (left_safe) left_unexplored = CalculateUnexploredCells(left);
+    if (safe.left_safe) left_unexplored = CalculateUnexploredCells(left_dir);
     else left_unexplored = -1;
 
     int least_unexplored = std::max({ forward_unexplored, right_unexplored, left_unexplored });
-    
+
     std::vector<std::string> candidates;
-    if (forward_safe && forward_unexplored == least_unexplored) candidates.push_back("F");
-    if (right_safe && right_unexplored == least_unexplored) candidates.push_back("R");
-    if (left_safe && left_unexplored == least_unexplored) candidates.push_back("L");
+    if (safe.forward_safe && forward_unexplored == least_unexplored) candidates.push_back("F");
+    if (safe.right_safe && right_unexplored == least_unexplored) candidates.push_back("R");
+    if (safe.left_safe && left_unexplored == least_unexplored) candidates.push_back("L");
 
 
     if (!candidates.empty()) {
@@ -325,6 +340,47 @@ std::string AI::DecideAction(Percepts& percepts) {
         return winner;
     }
 
+    return std::nullopt;
+}
+
+std::string AI::FallBackDeadEnd() {
+    dead_ends.insert({ my_location.x, my_location.y });
+    pending_commands.push_back("R");
+    pending_commands.push_back("F");
+    return "R"; //??????????
+}
+
+std::string AI::DecideAction(const Percepts& percepts) {
+	AdjacentCells adj_cells = GetAdjacentCells();
+	SafeDirections safe = GetSafeDirections(percepts, adj_cells);
+
+    //trap hunting mode
+    if (auto a = TrapHunting(percepts, adj_cells)) return a.value();
+	//treasure hunting mode
+	if (auto a = TreasureHunting(percepts)) return a.value();
+    //loop detection and breaking
+    if (auto a = LoopDetection(safe)) return a.value();
+   
+    //pending commands
+    if (!pending_commands.empty()) {
+		std::string next_cmd = pending_commands.front();
+        pending_commands.pop_front();
+        return next_cmd;
+    }
+    
+    //use or not a teleporter
+	if (auto a = UseTeleporter(percepts)) return a.value();
+    //TO BE ADDED: draw a new map
+    //stores teleporters links
+
+    
+    //check for dead end cells
+    UpdateDeadEnds(adj_cells, percepts);
+
+    //explore mode
+    //density scoring
+    if (auto a = DecideExploration(safe)) return a.value();
+    
     /*
     //chech which directions have been visited
     bool forward_visited = visited_cells.count({ forward_cell.x, forward_cell.y }) > 0;
@@ -361,10 +417,7 @@ std::string AI::DecideAction(Percepts& percepts) {
     }
     */
 	//if no safe directions, mark current cell as dead end and return
-    dead_ends.insert({my_location.x, my_location.y});
-	pending_commands.push_back("R");    
-	pending_commands.push_back("F");
-	return "R"; //??
+    return FallBackDeadEnd();
 
 }
 

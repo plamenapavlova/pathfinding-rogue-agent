@@ -63,14 +63,12 @@ void AI::SafeZone(Vec2 loc, int trap_dist) {
 
 AI::AdjacentCells AI::GetAdjacentCells() {
     AdjacentCells adj_cells;
+	Directions dirs = GetDirections();
 
-    Vec2 right = Vec2(-my_heading.y, my_heading.x);
-    Vec2 left = Vec2(my_heading.y, -my_heading.x);
-
-    adj_cells.forward_cell = my_location + my_heading;
-	adj_cells.right_cell = my_location + right;
-	adj_cells.left_cell = my_location + left;
-	adj_cells.backward_cell = my_location - my_heading;
+    adj_cells.forward_cell = my_location + dirs.forward;
+	adj_cells.right_cell = my_location + dirs.right;
+	adj_cells.left_cell = my_location + dirs.left;
+	adj_cells.backward_cell = my_location + dirs.backward;
 
 	return adj_cells;
 
@@ -92,6 +90,16 @@ AI::SafeDirections AI::GetSafeDirections(const Percepts& percepts, const Adjacen
     safe_dirs.backward_safe = CheckSafety(adj_cells.backward_cell) && !percepts.backward.empty() && percepts.backward[0] != symbols.wall && !backward_is_dead_end;
 
     return safe_dirs;
+}
+
+AI::Directions AI::GetDirections() {
+    Directions dirs;
+    dirs.forward = my_heading;
+    dirs.right = Vec2(-my_heading.y, my_heading.x);
+    dirs.left = Vec2(my_heading.y, -my_heading.x);
+	dirs.backward = Vec2(-my_heading.x, -my_heading.y);
+    return dirs;
+
 }
 
 void AI::UpdateLocation(std::string cmd) {
@@ -179,7 +187,11 @@ std::string AI::MoveTowardTarget(Vec2 target, const Percepts& percepts) {
         else return "R"; //NEEDS SOME LOGIC
     }
     Vec2 right_of_current = Vec2(-my_heading.y, my_heading.x);
+    Vec2 left_of_current = Vec2(my_heading.y, -my_heading.x);
+    Vec2 behind_current = Vec2(-my_heading.x, -my_heading.y);
     if (right_of_current == direction) return "R";
+    if (left_of_current == direction) return "L";
+    if (behind_current == direction) return "R";
     return "L";
 }
 
@@ -208,6 +220,7 @@ int AI::CalculateUnexploredCells(Vec2 direction) {
 }
 
 std::optional<Vec2> AI::DecideSeekTeleporter(const Percepts& percepts) {
+	Directions dirs = GetDirections();
     static const double WAIT_FRACTION = 0.15;
     static const double END_FRACTION = 0.80;
     static const double BUFFER_FRACTION = 0.3;//max turns to reach teleporter
@@ -230,12 +243,40 @@ std::optional<Vec2> AI::DecideSeekTeleporter(const Percepts& percepts) {
             }
         }
     }
+    std::cout << "[TELE DEBUG] tel_min_turns=" << tel_min_turns
+        << " tel_max_turns=" << tel_max_turns
+        << " current_turn=" << current_turn
+        << " max_acc_dist=" << max_acc_dist << std::endl;
 
-    if (!nearest_known_tel.has_value()) return std::nullopt;
+    if (!nearest_known_tel.has_value()) {
+        std::cout << "[TELE DEBUG] No teleporter found in known_map at all." << std::endl;
+        return std::nullopt;
+    }
     int tel_dist = my_location.ManhattanDistance(nearest_known_tel.value());
+    std::cout << "[TELE DEBUG] nearest teleporter at (" << nearest_known_tel.value().x
+        << "," << nearest_known_tel.value().y << ") tel_dist=" << tel_dist << std::endl;
+
     if (current_turn >= tel_min_turns && current_turn <= tel_max_turns && tel_dist <= max_acc_dist) {
+        std::cout << "[TELE DEBUG] Turn-window check PASSED - returning teleporter target." << std::endl;
         return nearest_known_tel;
     }
+    std::cout << "[TELE DEBUG] Turn-window check FAILED." << std::endl;
+    //if tel_min_turns is not reached but all the area is explored --> seek teleporter
+    bool forward_unexplored = CalculateUnexploredCells(dirs.forward) >0;
+	bool right_unexplored = CalculateUnexploredCells(dirs.right)> 0;
+	bool left_unexplored = CalculateUnexploredCells(dirs.left) > 0;
+	bool backward_unexplored = CalculateUnexploredCells(dirs.backward) > 0;
+	bool all_explored = !forward_unexplored && !right_unexplored && !left_unexplored && !backward_unexplored;
+	
+    std::cout << "[TELE DEBUG] all_explored=" << all_explored << std::endl;
+    if (all_explored)
+    {
+        std::cout << "[TELE DEBUG] Exhaustion bypass PASSED - returning teleporter target." << std::endl;
+        return nearest_known_tel;
+    }
+
+    std::cout << "[TELE DEBUG] No condition met - returning nullopt." << std::endl;
+    
     return std::nullopt;
 
     
@@ -300,29 +341,40 @@ std::optional<std::string> AI::UseTeleporter(const Percepts& percepts) {
     return std::nullopt;
 }
 
+bool AI::WallOrDead(Vec2 cell) {
+    if (known_map.find({ cell.x, cell.y }) != known_map.end() && known_map.find({ cell.x, cell.y })->second == symbols.wall
+        ||
+        dead_ends.find({ cell.x, cell.y }) != dead_ends.end()) return true;
+    return false;
+}
+
 void AI::UpdateDeadEnds(const AdjacentCells& adj_cells, const Percepts& percepts) {
-    bool backward_is_dead_end = dead_ends.count({ adj_cells.backward_cell.x, adj_cells.backward_cell.y }) > 0;
-    bool left_is_wall = !percepts.left.empty() && percepts.left[0] == symbols.wall;
-    bool right_is_wall = !percepts.right.empty() && percepts.right[0] == symbols.wall;
-    if (backward_is_dead_end && left_is_wall && right_is_wall) {
+    int count = 0;
+
+    if (WallOrDead(adj_cells.forward_cell)) count++;
+    if (WallOrDead(adj_cells.right_cell)) count++;
+    if (WallOrDead(adj_cells.left_cell)) count++;
+    if (WallOrDead(adj_cells.backward_cell)) count++;
+
+    if (count >= 3) {
         dead_ends.insert({ my_location.x, my_location.y });
     }
 }
 
+
 std::optional<std::string> AI::DecideExploration(const SafeDirections& safe) {
-    Vec2 right_dir = Vec2(-my_heading.y, my_heading.x);
-    Vec2 left_dir = Vec2(my_heading.y, -my_heading.x);
+	Directions dirs = GetDirections();
 
     int forward_unexplored;
-    if (safe.forward_safe) forward_unexplored = CalculateUnexploredCells(my_heading);
+    if (safe.forward_safe) forward_unexplored = CalculateUnexploredCells(dirs.forward);
     else forward_unexplored = -1;
 
     int right_unexplored;
-    if (safe.right_safe) right_unexplored = CalculateUnexploredCells(right_dir);
+    if (safe.right_safe) right_unexplored = CalculateUnexploredCells(dirs.right);
     else right_unexplored = -1;
 
     int left_unexplored;
-    if (safe.left_safe) left_unexplored = CalculateUnexploredCells(left_dir);
+    if (safe.left_safe) left_unexplored = CalculateUnexploredCells(dirs.left);
     else left_unexplored = -1;
 
     int least_unexplored = std::max({ forward_unexplored, right_unexplored, left_unexplored });
@@ -348,6 +400,15 @@ std::string AI::FallBackDeadEnd() {
     pending_commands.push_back("R");
     pending_commands.push_back("F");
     return "R"; //??????????
+}
+
+void AI::MarkMapSafe() {
+    for (const auto& cell : known_map) {
+        const std::string& symbol = cell.second;
+        if (symbol != symbols.wall) {
+            MarkSafe(Vec2(cell.first.first, cell.first.second));
+        }
+    }
 }
 
 std::string AI::DecideAction(const Percepts& percepts) {
@@ -445,12 +506,12 @@ std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
       pending_disarm_cell = std::nullopt;
   }
 
-
-
-
-
-  int trap_dist = percepts.detector;
-  SafeZone(my_location,trap_dist);
+  
+  if (percepts.detector == -1) MarkMapSafe();//no more traps left
+  else {
+      int trap_dist = percepts.detector;
+      SafeZone(my_location, trap_dist);
+  }
     
   std::cout << "Safe cells: ";
   for (const auto& cell : safe_cells) {
@@ -459,7 +520,11 @@ std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
   std::cout << std::endl;
 
   
-
+  std::cout << "Dead ends: ";
+  for (const auto& cell : dead_ends) {
+      std::cout << "(" << cell.first << "," << cell.second << ") ";
+  }
+  std::cout << std::endl;
 
   
   std::string action = DecideAction(percepts);

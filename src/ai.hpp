@@ -38,6 +38,9 @@ protected:
   struct SafeDirections {
       bool forward_safe, right_safe, left_safe, backward_safe;
   };
+  struct Directions {
+      Vec2 forward, right, left, backward;
+  };
   std::deque<std::pair<int, int>> last_visited_cells; // the last 9 cells the agent has psyhically occupied
   std::deque<std::string> pending_commands; // the commands that the agent has committed to
   std::set<std::pair<int, int>> dead_ends;//stores the ends of the maze
@@ -75,14 +78,17 @@ public:
   std::optional<Vec2> DecideSeekTeleporter(const Percepts& percepts);
   AdjacentCells GetAdjacentCells();
   SafeDirections GetSafeDirections(const Percepts& percepts, const AdjacentCells& adj_cells);
+  Directions GetDirections();
 
   std::optional<std::string> TrapHunting(const Percepts& percepts, const AdjacentCells& adj_cells);
   std::optional<std::string> TreasureHunting(const Percepts& percepts);
   std::optional<std::string> LoopDetection(const SafeDirections& safe);
   std::optional<std::string> UseTeleporter(const Percepts& percepts);
   void UpdateDeadEnds(const AdjacentCells& adj_cells, const Percepts& percepts);
+  bool WallOrDead(Vec2 cell);
   std::optional<std::string> DecideExploration(const SafeDirections& safe);
   std::string FallBackDeadEnd();
+  void MarkMapSafe();
 };
 
 

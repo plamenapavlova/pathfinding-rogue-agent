@@ -26,12 +26,25 @@ protected:
 
 
   //new
-  Vec2 my_location= Vec2(0, 0);//starting location
-  Vec2 my_heading = Vec2(0, -1);//starting heading
+  struct RegionData {
+      Vec2 my_location = Vec2(0, 0);//starting location
+      Vec2 my_heading = Vec2(0, -1);//starting heading
+      std::optional<Vec2> current_goal; // location of the treasure
+      std::deque<std::pair<int, int>> last_visited_cells; // the last 9 cells the agent has psyhically occupied
+      std::set<std::pair<int, int>> dead_ends;//stores the ends of the maze
+      std::set<std::pair<int, int>> safe_cells;//stores the computed safe cells including walls
+      std::map<std::pair<int, int>, std::string> known_map;//what the agent has seen
+      std::set<std::pair<int, int>> visited_cells;//which cells has the agent physically occupied
+  };
+  int current_region_id = 0; //by default we start from region 0
+  std::vector<RegionData> regions;
+  std::map<std::string, int> symbol_to_region_id; //mapping the teleporter symbol to the region using id
+  
   Vec2 internal_north = Vec2(0, -1);//agent's north direction
   int current_turn = 0;
+  int turns_in_region = 0;
   std::optional<Vec2> pending_disarm_cell;//the cell that is being disarmed
-  std::optional<Vec2> current_goal; // location of the treasure
+  
   struct AdjacentCells {
       Vec2 forward_cell, right_cell, left_cell, backward_cell;
   };
@@ -41,13 +54,12 @@ protected:
   struct Directions {
       Vec2 forward, right, left, backward;
   };
-  std::deque<std::pair<int, int>> last_visited_cells; // the last 9 cells the agent has psyhically occupied
-  std::deque<std::string> pending_commands; // the commands that the agent has committed to
-  std::set<std::pair<int, int>> dead_ends;//stores the ends of the maze
-  std::set<std::pair<int, int>> safe_cells;//stores the computed safe cells including walls
-  std::map<std::pair<int, int>, std::string> known_map;//what the agent has seen
-  std::set<std::pair<int, int>> visited_cells;//which cells has the agent physically occupied
   
+  std::deque<std::string> pending_commands; // the commands that the agent has committed to
+  std::map<std::string, std::string> teleporter_pairs;
+  std::optional<std::string> pending_teleporter;//the teleporter being used
+  
+
   int max_turn;
 
 public:
@@ -84,11 +96,14 @@ public:
   std::optional<std::string> TreasureHunting(const Percepts& percepts);
   std::optional<std::string> LoopDetection(const SafeDirections& safe);
   std::optional<std::string> UseTeleporter(const Percepts& percepts);
-  void UpdateDeadEnds(const AdjacentCells& adj_cells, const Percepts& percepts);
+  void UpdateDeadEnds(const AdjacentCells& adj_cells);
   bool WallOrDead(Vec2 cell);
   std::optional<std::string> DecideExploration(const SafeDirections& safe);
   std::string FallBackDeadEnd();
   void MarkMapSafe();
+
+  RegionData& CurrentRegion();
+  std::deque<std::string> BFS(Vec2 target);
 };
 
 

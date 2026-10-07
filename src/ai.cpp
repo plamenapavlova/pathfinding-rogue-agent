@@ -3,7 +3,7 @@
 /***************************************************************
 AI CLASS DEFINITION
 */
-AI::AI() {}
+AI::AI() { regions.push_back(RegionData()); }
 AI::AI(
     unsigned id, 
     unsigned agent_speed,
@@ -14,7 +14,9 @@ AI::AI(
 )
   : id(id), agent_speed(agent_speed), rng(rng),
     symbols(symbols), costs(costs), max_turn(max_turn)
-{}
+{
+    regions.push_back(RegionData());//new region data pushed back for this state
+}
 
 void AI::PrintPercepts(const Percepts & percepts) {
   std::cout << "DISTANCE: " << percepts.detector << std::endl;
@@ -43,10 +45,12 @@ void AI::PrintPercepts(const Percepts & percepts) {
 //new
 
 bool AI::CheckSafety(Vec2 loc) {
+    auto& safe_cells = CurrentRegion().safe_cells;
     if (safe_cells.find({ loc.x, loc.y }) == safe_cells.end()) return false; return true;
 }
 
 void AI::MarkSafe(Vec2 loc) {
+    auto& safe_cells = CurrentRegion().safe_cells;
     safe_cells.insert({ loc.x, loc.y });
 }
 
@@ -62,6 +66,7 @@ void AI::SafeZone(Vec2 loc, int trap_dist) {
 }
 
 AI::AdjacentCells AI::GetAdjacentCells() {
+    auto& my_location = CurrentRegion().my_location;
     AdjacentCells adj_cells;
 	Directions dirs = GetDirections();
 
@@ -76,7 +81,7 @@ AI::AdjacentCells AI::GetAdjacentCells() {
 
 AI::SafeDirections AI::GetSafeDirections(const Percepts& percepts, const AdjacentCells& adj_cells) {
     SafeDirections safe_dirs;
-
+    auto& dead_ends = CurrentRegion().dead_ends;
 
     bool forward_is_dead_end = dead_ends.count({ adj_cells.forward_cell.x, adj_cells.forward_cell.y }) > 0;
     bool right_is_dead_end = dead_ends.count({ adj_cells.right_cell.x, adj_cells.right_cell.y }) > 0;
@@ -93,6 +98,7 @@ AI::SafeDirections AI::GetSafeDirections(const Percepts& percepts, const Adjacen
 }
 
 AI::Directions AI::GetDirections() {
+    auto& my_heading = CurrentRegion().my_heading;
     Directions dirs;
     dirs.forward = my_heading;
     dirs.right = Vec2(-my_heading.y, my_heading.x);
@@ -103,6 +109,9 @@ AI::Directions AI::GetDirections() {
 }
 
 void AI::UpdateLocation(std::string cmd) {
+    auto& my_location = CurrentRegion().my_location;
+    auto& my_heading = CurrentRegion().my_heading;
+
     if (cmd == "F") {
         my_location = my_location + my_heading;
     }
@@ -123,6 +132,11 @@ void AI::UpdateLocation(std::string cmd) {
 }
 
 void AI::UpdateMap(const Percepts& percepts) {
+    auto& known_map = CurrentRegion().known_map;
+    auto& visited_cells = CurrentRegion().visited_cells;
+    auto& my_location = CurrentRegion().my_location;
+    auto& my_heading = CurrentRegion().my_heading;
+
     if (!percepts.current.empty()) {
         known_map[{my_location.x, my_location.y}] = percepts.current[0];
         visited_cells.insert({ my_location.x, my_location.y });
@@ -149,6 +163,9 @@ void AI::UpdateMap(const Percepts& percepts) {
     }
 }
 std::optional<Vec2> AI::FindNearestObject(const std::string& object_symbol) {
+    auto& known_map = CurrentRegion().known_map;
+    auto& my_location = CurrentRegion().my_location;
+
     std::optional<Vec2> nearest;
 	int shortest_dist = std::numeric_limits<int>::max();
 
@@ -164,38 +181,110 @@ std::optional<Vec2> AI::FindNearestObject(const std::string& object_symbol) {
 	return nearest;
 }
 
-std::string AI::MoveTowardTarget(Vec2 target, const Percepts& percepts) {
-    Vec2 diff = target - my_location;
-    if (diff.x == 0 && diff.y == 0) {
-        return "reached";
-    }
-    Vec2 direction;
-    if (std::abs(diff.x) >= std::abs(diff.y)) {
-        if (diff.x > 0 ) direction = Vec2(1, 0);
-		else direction = Vec2(-1, 0);
-    }
-    else {
-		if (diff.y > 0) direction = Vec2(0, 1);
-		else direction = Vec2(0, -1);
+std::deque<std::string> AI::BFS(Vec2 target) {
+    std::deque<std::string> commands;
+    auto& my_location = CurrentRegion().my_location;
+    auto& known_map = CurrentRegion().known_map;
+    auto& my_heading = CurrentRegion().my_heading;
+
+    if (my_location.x == target.x && my_location.y == target.y) return commands;
+
+    std::vector<Vec2> directions = {Vec2(0, -1), Vec2(-1, 0), Vec2(0, 1), Vec2(1, 0)};
+    std::deque<Vec2> queue;
+    std::set<std::pair<int, int>> visited;
+    std::map<std::pair<int, int>, std::pair<int, int>> came_from;
+
+    queue.push_back(my_location);
+    visited.insert({my_location.x, my_location.y});
+    bool found = false;
+
+    while (!queue.empty()) {
+        Vec2 current = queue.front();
+        queue.pop_front();
+        auto current_pair = std::make_pair(current.x, current.y);
+        
+        if (current.x == target.x && current.y == target.y) {
+            found = true;
+            break;
+        } 
+        for (Vec2& dir : directions) {
+            Vec2 next = current + dir;
+            auto next_pair = std::make_pair(next.x, next.y);
+            if (visited.find(next_pair) != visited.end()) continue;
+
+            bool known_wall = (known_map.find(next_pair) != known_map.end() && known_map.find(next_pair)->second == symbols.wall);
+            if (!known_wall) {
+                queue.push_back(next);
+                visited.insert(next_pair);
+                came_from[next_pair] = current_pair;
+
+            }
+
+        }
     }
 
-    if (my_heading == direction) {
-		Vec2 next_cell = my_location + my_heading;
-        if (CheckSafety(next_cell) && !percepts.forward.empty() && percepts.forward[0] != symbols.wall) {
-            return "F";
-        }
-        else return "R"; //NEEDS SOME LOGIC
+    if (!found) return commands;
+
+    std::vector<Vec2> path;
+    std::pair<int, int> cur = {target.x, target.y};
+    while (!(cur.first == my_location.x && cur.second == my_location.y)) {
+        path.push_back(Vec2(cur.first, cur.second));
+        cur = came_from[cur];
     }
-    Vec2 right_of_current = Vec2(-my_heading.y, my_heading.x);
-    Vec2 left_of_current = Vec2(my_heading.y, -my_heading.x);
-    Vec2 behind_current = Vec2(-my_heading.x, -my_heading.y);
-    if (right_of_current == direction) return "R";
-    if (left_of_current == direction) return "L";
-    if (behind_current == direction) return "R";
-    return "L";
+    std::reverse(path.begin(), path.end());
+
+    Vec2 curr_location = my_location;
+    Vec2 curr_heading = my_heading;
+    for (auto& cell : path) {
+        Vec2 diff = cell - curr_location;
+
+        Vec2 right_of_current = Vec2(-curr_heading.y, curr_heading.x);
+        Vec2 left_of_current = Vec2(curr_heading.y, -curr_heading.x);
+        Vec2 behind_current = Vec2(-curr_heading.x, -curr_heading.y);
+        if(curr_heading== diff)  commands.push_back("F");
+        else if (right_of_current == diff) {
+            commands.push_back("R");
+            commands.push_back("F");
+            curr_heading = right_of_current;
+        }
+        else if (left_of_current == diff) {
+            commands.push_back("L");
+            commands.push_back("F");
+            curr_heading = left_of_current;
+        }
+        else if (behind_current ==diff) {
+            commands.push_back("R");
+            commands.push_back("R");
+            commands.push_back("F");
+            curr_heading = behind_current;
+        }
+        curr_location = cell;
+    }
+
+    return commands;
+
+
+}
+
+std::string AI::MoveTowardTarget(Vec2 target, const Percepts& percepts) {
+    auto& my_location = CurrentRegion().my_location;
+    if (my_location.x == target.x && my_location.y == target.y) return "reached";
+
+    if (pending_commands.empty()) {
+        pending_commands = BFS(target);
+        if (pending_commands.empty()) return "reached";//should return "unreachable"
+    }
+    
+    std::string next_cmd = pending_commands.front();
+    pending_commands.pop_front();
+    return next_cmd;
+
 }
 
 int AI::CalculateUnexploredCells(Vec2 direction) {
+    auto& my_location = CurrentRegion().my_location;
+    auto& known_map = CurrentRegion().known_map;
+
     static const int EXPLORE_DIST = 15;
     Vec2 perpendicular_direction = Vec2(direction.y, -direction.x);
     int unexplored_cells = 0;
@@ -220,6 +309,8 @@ int AI::CalculateUnexploredCells(Vec2 direction) {
 }
 
 std::optional<Vec2> AI::DecideSeekTeleporter(const Percepts& percepts) {
+    auto& my_location = CurrentRegion().my_location;
+
 	Directions dirs = GetDirections();
     static const double WAIT_FRACTION = 0.15;
     static const double END_FRACTION = 0.80;
@@ -256,10 +347,7 @@ std::optional<Vec2> AI::DecideSeekTeleporter(const Percepts& percepts) {
     std::cout << "[TELE DEBUG] nearest teleporter at (" << nearest_known_tel.value().x
         << "," << nearest_known_tel.value().y << ") tel_dist=" << tel_dist << std::endl;
 
-    if (current_turn >= tel_min_turns && current_turn <= tel_max_turns && tel_dist <= max_acc_dist) {
-        std::cout << "[TELE DEBUG] Turn-window check PASSED - returning teleporter target." << std::endl;
-        return nearest_known_tel;
-    }
+
     std::cout << "[TELE DEBUG] Turn-window check FAILED." << std::endl;
     //if tel_min_turns is not reached but all the area is explored --> seek teleporter
     bool forward_unexplored = CalculateUnexploredCells(dirs.forward) >0;
@@ -269,9 +357,12 @@ std::optional<Vec2> AI::DecideSeekTeleporter(const Percepts& percepts) {
 	bool all_explored = !forward_unexplored && !right_unexplored && !left_unexplored && !backward_unexplored;
 	
     std::cout << "[TELE DEBUG] all_explored=" << all_explored << std::endl;
-    if (all_explored)
-    {
-        std::cout << "[TELE DEBUG] Exhaustion bypass PASSED - returning teleporter target." << std::endl;
+    if (!all_explored) {
+        return std::nullopt;
+    }
+
+    if (current_turn >= tel_min_turns) {
+        std::cout << "[TELE DEBUG] Turn-window check PASSED - returning teleporter target." << std::endl;
         return nearest_known_tel;
     }
 
@@ -283,6 +374,7 @@ std::optional<Vec2> AI::DecideSeekTeleporter(const Percepts& percepts) {
 }
 
 std::optional<std::string> AI::TrapHunting(const Percepts& percepts, const AdjacentCells& adj_cells) {
+    auto& safe_cells = CurrentRegion().safe_cells;
 
     if (percepts.detector == 1 && safe_cells.find({ adj_cells.forward_cell.x, adj_cells.forward_cell.y }) == safe_cells.end()) {
         pending_disarm_cell = adj_cells.forward_cell;
@@ -292,6 +384,10 @@ std::optional<std::string> AI::TrapHunting(const Percepts& percepts, const Adjac
 }
 
 std::optional<std::string> AI::TreasureHunting(const Percepts& percepts) {
+    auto& current_goal = CurrentRegion().current_goal;
+    auto& known_map = CurrentRegion().known_map;
+    auto& my_location = CurrentRegion().my_location;
+
     if (!current_goal.has_value()) {
         current_goal = FindNearestObject(symbols.treasure);
     }
@@ -307,6 +403,9 @@ std::optional<std::string> AI::TreasureHunting(const Percepts& percepts) {
     return std::nullopt;
 }
 std::optional<std::string> AI::LoopDetection(const SafeDirections& safe) {
+    auto& last_visited_cells = CurrentRegion().last_visited_cells;
+    auto& my_location = CurrentRegion().my_location;
+
     static const int MAX_LAST_VISITED_CELLS = 9;
     last_visited_cells.push_back({ my_location.x, my_location.y });
     if (last_visited_cells.size() > MAX_LAST_VISITED_CELLS) {
@@ -335,20 +434,42 @@ std::optional<std::string> AI::UseTeleporter(const Percepts& percepts) {
     std::optional<Vec2> target_tel = DecideSeekTeleporter(percepts);//recomputed every turn
     if (target_tel.has_value()) {
         std::string action = MoveTowardTarget(target_tel.value(), percepts);
-        if (action == "reached") return "U";
+        if (action == "reached") {
+            std::string symbol = percepts.current[0]; 
+			pending_teleporter = symbol;
+            if (symbol_to_region_id.find(symbol) != symbol_to_region_id.end()) {
+                current_region_id = symbol_to_region_id[symbol];
+            }
+            else {
+				regions.push_back(RegionData());
+                current_region_id = (int)regions.size()-1; 
+                symbol_to_region_id[symbol] = current_region_id;
+            }
+
+            pending_commands.clear();
+            pending_disarm_cell = std::nullopt;
+            turns_in_region = 0;
+            return "U";
+        }
         return action;
     }
     return std::nullopt;
 }
 
 bool AI::WallOrDead(Vec2 cell) {
+    auto& known_map = CurrentRegion().known_map;
+    auto& dead_ends = CurrentRegion().dead_ends;
+
     if (known_map.find({ cell.x, cell.y }) != known_map.end() && known_map.find({ cell.x, cell.y })->second == symbols.wall
         ||
         dead_ends.find({ cell.x, cell.y }) != dead_ends.end()) return true;
     return false;
 }
 
-void AI::UpdateDeadEnds(const AdjacentCells& adj_cells, const Percepts& percepts) {
+void AI::UpdateDeadEnds(const AdjacentCells& adj_cells) {
+    auto& dead_ends = CurrentRegion().dead_ends;
+    auto& my_location = CurrentRegion().my_location;
+
     int count = 0;
 
     if (WallOrDead(adj_cells.forward_cell)) count++;
@@ -396,6 +517,9 @@ std::optional<std::string> AI::DecideExploration(const SafeDirections& safe) {
 }
 
 std::string AI::FallBackDeadEnd() {
+    auto& dead_ends = CurrentRegion().dead_ends;
+    auto& my_location = CurrentRegion().my_location;
+
     dead_ends.insert({ my_location.x, my_location.y });
     pending_commands.push_back("R");
     pending_commands.push_back("F");
@@ -403,12 +527,18 @@ std::string AI::FallBackDeadEnd() {
 }
 
 void AI::MarkMapSafe() {
+    auto& known_map = CurrentRegion().known_map;
+
     for (const auto& cell : known_map) {
         const std::string& symbol = cell.second;
         if (symbol != symbols.wall) {
             MarkSafe(Vec2(cell.first.first, cell.first.second));
         }
     }
+}
+
+AI::RegionData& AI::CurrentRegion() {
+    return regions[current_region_id];
 }
 
 std::string AI::DecideAction(const Percepts& percepts) {
@@ -419,9 +549,6 @@ std::string AI::DecideAction(const Percepts& percepts) {
     if (auto a = TrapHunting(percepts, adj_cells)) return a.value();
 	//treasure hunting mode
 	if (auto a = TreasureHunting(percepts)) return a.value();
-    //loop detection and breaking
-    if (auto a = LoopDetection(safe)) return a.value();
-   
     //pending commands
     if (!pending_commands.empty()) {
 		std::string next_cmd = pending_commands.front();
@@ -433,10 +560,12 @@ std::string AI::DecideAction(const Percepts& percepts) {
 	if (auto a = UseTeleporter(percepts)) return a.value();
     //TO BE ADDED: draw a new map
     //stores teleporters links
-
+    // 
+    //loop detection and breaking
+    if (auto a = LoopDetection(safe)) return a.value();
     
     //check for dead end cells
-    UpdateDeadEnds(adj_cells, percepts);
+    UpdateDeadEnds(adj_cells);
 
     //explore mode
     //density scoring
@@ -484,6 +613,7 @@ std::string AI::DecideAction(const Percepts& percepts) {
 
 std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
     current_turn++;
+    turns_in_region++;
   std::cout << std::unitbuf;
   std::cout << "------------------------------------------------\n";
   std::cout << "AGENT ID: " << id << std::endl;
@@ -495,10 +625,22 @@ std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
   std::cout << "max_turn: " << max_turn << " current_turn: " << current_turn << std::endl;  
 
   UpdateMap(percepts);
+  auto& known_map = CurrentRegion().known_map;
+  auto& my_location = CurrentRegion().my_location;
+  auto& dead_ends = CurrentRegion().dead_ends;
+  auto& safe_cells = CurrentRegion().safe_cells;
+
   std::cout << "Known map (" << known_map.size() << " cells):\n";
   for (const auto& entry : known_map) {
       std::cout << "  (" << entry.first.first << "," << entry.first.second
           << "): '" << entry.second << "'\n";
+  }
+
+  if (pending_teleporter.has_value()) {
+      std::cout << "[TELE] Landed, symbol seen = '" << percepts.current[0] << "'" << std::endl;
+      teleporter_pairs[pending_teleporter.value()] = percepts.current[0];
+      pending_teleporter = std::nullopt;
+
   }
 
   if (pending_disarm_cell.has_value()) {
@@ -526,7 +668,17 @@ std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
   }
   std::cout << std::endl;
 
-  
+  std::cout << "Current region: " << current_region_id << " (total regions: " << regions.size() << ")" << std::endl;
+  std::cout << "Symbol->region map: ";
+  for (const auto& entry : symbol_to_region_id) {
+      std::cout << "[" << entry.first << "->" << entry.second << "] ";
+  }
+  std::cout << std::endl;
+
+  std::cout << "My location: (" << CurrentRegion().my_location.x << "," << CurrentRegion().my_location.y
+      << ") heading: (" << CurrentRegion().my_heading.x << "," << CurrentRegion().my_heading.y << ")" << std::endl;
+
+
   std::string action = DecideAction(percepts);
   std::cout << "Action: " << action << std::endl;
   UpdateLocation(action);

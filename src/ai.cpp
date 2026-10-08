@@ -272,7 +272,7 @@ std::string AI::MoveTowardTarget(Vec2 target, const Percepts& percepts) {
 
     if (pending_commands.empty()) {
         pending_commands = BFS(target);
-        if (pending_commands.empty()) return "reached";//should return "unreachable"
+        if (pending_commands.empty()) return "unreachable";//should return "unreachable"
     }
     
     std::string next_cmd = pending_commands.front();
@@ -398,6 +398,10 @@ std::optional<std::string> AI::TreasureHunting(const Percepts& percepts) {
             current_goal = std::nullopt;
             return "T";
         }
+        if (action == "unreachable") {
+			current_goal = std::nullopt;
+			return std::nullopt;
+        }
         return action;
     }
     return std::nullopt;
@@ -450,6 +454,9 @@ std::optional<std::string> AI::UseTeleporter(const Percepts& percepts) {
             pending_disarm_cell = std::nullopt;
             turns_in_region = 0;
             return "U";
+        }
+        if (action == "unreachable") {
+            return std::nullopt;
         }
         return action;
     }

@@ -98,7 +98,7 @@ public:
   std::optional<std::string> UseTeleporter(const Percepts& percepts);
   void UpdateDeadEnds(const AdjacentCells& adj_cells);
   bool WallOrDead(Vec2 cell);
-  std::optional<std::string> DecideExploration(const SafeDirections& safe);
+  std::optional<std::string> DecideExploration(const SafeDirections& safe, const Percepts& percepts);
   std::string FallBackDeadEnd();
   void MarkMapSafe();
 

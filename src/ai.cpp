@@ -272,7 +272,7 @@ std::string AI::MoveTowardTarget(Vec2 target, const Percepts& percepts) {
 
     if (pending_commands.empty()) {
         pending_commands = BFS(target);
-        if (pending_commands.empty()) return "unreachable";//should return "unreachable"
+        if (pending_commands.empty()) return "unreachable";
     }
     
     std::string next_cmd = pending_commands.front();
@@ -490,7 +490,7 @@ void AI::UpdateDeadEnds(const AdjacentCells& adj_cells) {
 }
 
 
-std::optional<std::string> AI::DecideExploration(const SafeDirections& safe) {
+std::optional<std::string> AI::DecideExploration(const SafeDirections& safe, const Percepts& percepts) {
 	Directions dirs = GetDirections();
 
     int forward_unexplored;
@@ -505,17 +505,47 @@ std::optional<std::string> AI::DecideExploration(const SafeDirections& safe) {
     if (safe.left_safe) left_unexplored = CalculateUnexploredCells(dirs.left);
     else left_unexplored = -1;
 
+
+    bool forward_occupied = false;
+	bool left_occupied = false;
+	bool right_occupied = false;
+
+    for (auto& agent_dist : percepts.others) {
+        if (agent_dist.x == 0 && agent_dist.y == 0) continue;//skip self
+        if (std::abs(agent_dist.x) >= std::abs(agent_dist.y)) {
+            if (agent_dist.x > 0) right_occupied = true;
+            else left_occupied = true;
+        }
+        else {
+            if (agent_dist.y >= 0) forward_occupied = true;
+			
+        }
+    }
+
+
+    std::vector<std::string> prefferable_dirs;
+    if (!forward_occupied && safe.forward_safe && forward_unexplored > 1) prefferable_dirs.push_back("F");
+    if (!left_occupied && safe.left_safe && left_unexplored > 1) prefferable_dirs.push_back("L");
+    if (!right_occupied && safe.right_safe && right_unexplored > 1) prefferable_dirs.push_back("R");
+
+    if (!prefferable_dirs.empty()) {
+        std::shuffle(prefferable_dirs.begin(), prefferable_dirs.end(), *rng);
+        std::string winner = prefferable_dirs[0];
+        if (winner == "L" || winner == "R") pending_commands.push_back("F");
+        return winner;
+    }
+
     int least_unexplored = std::max({ forward_unexplored, right_unexplored, left_unexplored });
 
-    std::vector<std::string> candidates;
-    if (safe.forward_safe && forward_unexplored == least_unexplored) candidates.push_back("F");
-    if (safe.right_safe && right_unexplored == least_unexplored) candidates.push_back("R");
-    if (safe.left_safe && left_unexplored == least_unexplored) candidates.push_back("L");
+    std::vector<std::string> backups;
+    if (safe.forward_safe && forward_unexplored == least_unexplored) backups.push_back("F");
+    if (safe.right_safe && right_unexplored == least_unexplored) backups.push_back("R");
+    if (safe.left_safe && left_unexplored == least_unexplored) backups.push_back("L");
 
 
-    if (!candidates.empty()) {
-        std::shuffle(candidates.begin(), candidates.end(), *rng);
-        std::string winner = candidates[0];
+    if (!backups.empty()) {
+        std::shuffle(backups.begin(), backups.end(), *rng);
+        std::string winner = backups[0];
         if (winner == "L" || winner == "R") pending_commands.push_back("F");
         return winner;
     }
@@ -548,6 +578,8 @@ AI::RegionData& AI::CurrentRegion() {
     return regions[current_region_id];
 }
 
+
+
 std::string AI::DecideAction(const Percepts& percepts) {
 	AdjacentCells adj_cells = GetAdjacentCells();
 	SafeDirections safe = GetSafeDirections(percepts, adj_cells);
@@ -576,7 +608,7 @@ std::string AI::DecideAction(const Percepts& percepts) {
 
     //explore mode
     //density scoring
-    if (auto a = DecideExploration(safe)) return a.value();
+    if (auto a = DecideExploration(safe, percepts)) return a.value();
     
     /*
     //chech which directions have been visited

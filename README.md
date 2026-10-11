@@ -1,4 +1,4 @@
-# Multi-Agent Exploration & Decision-Making System (C++17)
+# Autonomous Multi-Agent AI System (C++17)
 
 Autonomous AI agents that explore an unknown, partially observable grid maze without a map. They build an internal model of the world, disarm hidden traps, collect treasure, use teleporters, and coordinate with each other to avoid duplicating effort.
 

@@ -579,6 +579,42 @@ AI::RegionData& AI::CurrentRegion() {
 }
 
 
+unsigned AI::EncodeSignal(Vec2 tele_coor, int status) {
+    //status: 1- going to the teleporter, 2 - getting the teleporter
+	auto& known_map = CurrentRegion().known_map;
+    std::string tele_symbol;
+    tele_symbol = known_map[{tele_coor.x, tele_coor.y}];
+
+    int position = 0;
+    int size = symbols.teleporters.size();
+    unsigned signal = 0;
+    unsigned place = 1;
+    for (int i = 0; i < size; i++) {
+        if (symbols.teleporters[i] == tele_symbol) {
+            signal += status * place;
+        }
+        else {
+            place *= 10;
+        }
+    }
+
+    return signal;
+
+}
+
+void AI::DecodeSignal(unsigned signal) {
+    unsigned pos = 1;
+    for (size_t i = 0; i < symbols.teleporters.size(); i++) {
+        int digit = (signal / pos) % 10;
+        std::string symbol = symbols.teleporters[i];
+        if (digit == 1) headed_to_teleporters.insert(symbol); 
+		else if (digit == 2) reached_teleporters.insert(symbol);
+
+        pos *= 10;
+    }
+
+}
+
 
 std::string AI::DecideAction(const Percepts& percepts) {
 	AdjacentCells adj_cells = GetAdjacentCells();
@@ -717,6 +753,15 @@ std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
   std::cout << "My location: (" << CurrentRegion().my_location.x << "," << CurrentRegion().my_location.y
       << ") heading: (" << CurrentRegion().my_heading.x << "," << CurrentRegion().my_heading.y << ")" << std::endl;
 
+
+  headed_to_teleporters.clear();
+  int num_agents = comms->GetNumAgents();
+  for (int i = 0; i < num_agents; i++) {
+      if (i == (int) id) continue;
+      unsigned signal = comms->GetSignal(i);
+      DecodeSignal(signal);
+  }
+ 
 
   std::string action = DecideAction(percepts);
   std::cout << "Action: " << action << std::endl;

@@ -39,7 +39,9 @@ protected:
   int current_region_id = 0; //by default we start from region 0
   std::vector<RegionData> regions;
   std::map<std::string, int> symbol_to_region_id; //mapping the teleporter symbol to the region using id
-  
+  std::set<std::string> headed_to_teleporters;//teleporters currently headed to
+  std::set<std::string> reached_teleporters;//teleporters that have been reached by others agents
+
   Vec2 internal_north = Vec2(0, -1);//agent's north direction
   int current_turn = 0;
   int turns_in_region = 0;
@@ -104,6 +106,8 @@ public:
 
   RegionData& CurrentRegion();
   std::deque<std::string> BFS(Vec2 target);
+  unsigned EncodeSignal(Vec2 tele_coor, int status);
+  void DecodeSignal(unsigned signal);
 };
 
 

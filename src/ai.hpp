@@ -41,6 +41,7 @@ protected:
   std::map<std::string, int> symbol_to_region_id; //mapping the teleporter symbol to the region using id
   std::set<std::string> headed_to_teleporters;//teleporters currently headed to
   std::set<std::string> reached_teleporters;//teleporters that have been reached by others agents
+  AgentComm* comms = nullptr;
 
   Vec2 internal_north = Vec2(0, -1);//agent's north direction
   int current_turn = 0;
@@ -60,9 +61,11 @@ protected:
   std::deque<std::string> pending_commands; // the commands that the agent has committed to
   std::map<std::string, std::string> teleporter_pairs;
   std::optional<std::string> pending_teleporter;//the teleporter being used
+  std::set<std::string> used_teleporters;
   
 
   int max_turn;
+  int region_remaining_turns = max_turn;
 
 public:
   AI();

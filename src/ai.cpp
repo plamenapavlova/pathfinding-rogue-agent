@@ -312,33 +312,38 @@ std::optional<Vec2> AI::DecideSeekTeleporter(const Percepts& percepts) {
     auto& my_location = CurrentRegion().my_location;
 
 	Directions dirs = GetDirections();
-    static const double WAIT_FRACTION = 0.15;
-    static const double END_FRACTION = 0.80;
-    static const double BUFFER_FRACTION = 0.3;//max turns to reach teleporter
+    static const double WAIT_FRACTION = 0.3;
 
     int remaining_turns = max_turn - current_turn;
-    int tel_min_turns = int(max_turn * WAIT_FRACTION);
-    int tel_max_turns = int(max_turn * END_FRACTION);
-    int max_acc_dist = int(remaining_turns * BUFFER_FRACTION);
+    int tel_min_turns = int(region_remaining_turns * WAIT_FRACTION);
+
 
     std::optional<Vec2> nearest_known_tel = std::nullopt;
+
     int shortest_dist = std::numeric_limits<int>::max();
+    int best_ranking = 3;
 
     for (const std::string& tel_symbol : symbols.teleporters) {
         std::optional<Vec2> candidate = FindNearestObject(tel_symbol);
-        if (candidate.has_value()) {
+        if (candidate.has_value()) { 
             int distance = my_location.ManhattanDistance(candidate.value());
-            if (distance < shortest_dist) {
+
+            int ranking;
+            if (used_teleporters.count(tel_symbol) > 0) ranking = 3;
+            else if (headed_to_teleporters.count(tel_symbol) > 0 || reached_teleporters.count(tel_symbol) > 0) ranking = 2;
+            else ranking = 1;
+            std::cout << "[RANK DEBUG] symbol='" << tel_symbol << "' dist=" << distance << " ranking=" << ranking << std::endl;
+            if (ranking<best_ranking || (ranking ==best_ranking && distance < shortest_dist)) {
+				best_ranking = ranking;
                 shortest_dist = distance;
                 nearest_known_tel = candidate;
             }
+
         }
     }
-    std::cout << "[TELE DEBUG] tel_min_turns=" << tel_min_turns
-        << " tel_max_turns=" << tel_max_turns
-        << " current_turn=" << current_turn
-        << " max_acc_dist=" << max_acc_dist << std::endl;
-
+    
+    if (nearest_known_tel.has_value())
+        std::cout << "[RANK DEBUG] CHOSEN dist=" << shortest_dist << " ranking=" << best_ranking << std::endl;
     if (!nearest_known_tel.has_value()) {
         std::cout << "[TELE DEBUG] No teleporter found in known_map at all." << std::endl;
         return std::nullopt;
@@ -347,28 +352,31 @@ std::optional<Vec2> AI::DecideSeekTeleporter(const Percepts& percepts) {
     std::cout << "[TELE DEBUG] nearest teleporter at (" << nearest_known_tel.value().x
         << "," << nearest_known_tel.value().y << ") tel_dist=" << tel_dist << std::endl;
 
-
-    std::cout << "[TELE DEBUG] Turn-window check FAILED." << std::endl;
-    //if tel_min_turns is not reached but all the area is explored --> seek teleporter
-    bool forward_unexplored = CalculateUnexploredCells(dirs.forward) >0;
-	bool right_unexplored = CalculateUnexploredCells(dirs.right)> 0;
-	bool left_unexplored = CalculateUnexploredCells(dirs.left) > 0;
-	bool backward_unexplored = CalculateUnexploredCells(dirs.backward) > 0;
-	bool all_explored = !forward_unexplored && !right_unexplored && !left_unexplored && !backward_unexplored;
+    if (tel_dist >= remaining_turns) return std::nullopt;
+    std::cout << "[TELE DEBUG] Turn-window check PASSED." << std::endl;
 	
-    std::cout << "[TELE DEBUG] all_explored=" << all_explored << std::endl;
-    if (!all_explored) {
+
+    if (turns_in_region < tel_min_turns) {
+        std::cout << "[TELE DEBUG] Still in explore window, not seeking yet." << std::endl;
         return std::nullopt;
     }
-
-    if (current_turn >= tel_min_turns) {
-        std::cout << "[TELE DEBUG] Turn-window check PASSED - returning teleporter target." << std::endl;
+    if (best_ranking == 1) {
         return nearest_known_tel;
+        //add some threshold before using a teleporter again
     }
-
-    std::cout << "[TELE DEBUG] No condition met - returning nullopt." << std::endl;
     
-    return std::nullopt;
+
+    int forward_unexplored = CalculateUnexploredCells(dirs.forward);
+    int right_unexplored = CalculateUnexploredCells(dirs.right);
+    int left_unexplored = CalculateUnexploredCells(dirs.left);
+    int backward_unexplored = CalculateUnexploredCells(dirs.backward);
+	int total_unexplored = forward_unexplored + right_unexplored + left_unexplored + backward_unexplored;
+    int threshold = 5;
+    if (total_unexplored > threshold) {
+		return std::nullopt;
+    }
+    
+    return nearest_known_tel;
 
     
 }
@@ -437,22 +445,20 @@ std::optional<std::string> AI::LoopDetection(const SafeDirections& safe) {
 std::optional<std::string> AI::UseTeleporter(const Percepts& percepts) {
     std::optional<Vec2> target_tel = DecideSeekTeleporter(percepts);//recomputed every turn
     if (target_tel.has_value()) {
+        comms->SetSignal(id, EncodeSignal(target_tel.value(), 1));
         std::string action = MoveTowardTarget(target_tel.value(), percepts);
         if (action == "reached") {
+            comms->SetSignal(id, EncodeSignal(target_tel.value(), 2));
             std::string symbol = percepts.current[0]; 
 			pending_teleporter = symbol;
-            if (symbol_to_region_id.find(symbol) != symbol_to_region_id.end()) {
-                current_region_id = symbol_to_region_id[symbol];
-            }
-            else {
-				regions.push_back(RegionData());
-                current_region_id = (int)regions.size()-1; 
+            used_teleporters.insert(symbol);
+            if (symbol_to_region_id.find(symbol) == symbol_to_region_id.end())
                 symbol_to_region_id[symbol] = current_region_id;
-            }
 
             pending_commands.clear();
             pending_disarm_cell = std::nullopt;
             turns_in_region = 0;
+            region_remaining_turns = max_turn - current_turn;
             return "U";
         }
         if (action == "unreachable") {
@@ -585,7 +591,7 @@ unsigned AI::EncodeSignal(Vec2 tele_coor, int status) {
     std::string tele_symbol;
     tele_symbol = known_map[{tele_coor.x, tele_coor.y}];
 
-    int position = 0;
+    
     int size = symbols.teleporters.size();
     unsigned signal = 0;
     unsigned place = 1;
@@ -686,18 +692,40 @@ std::string AI::DecideAction(const Percepts& percepts) {
 
 }
 
-std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
+std::vector<std::string> AI::Run(Percepts& percepts, AgentComm* comms) {
     current_turn++;
     turns_in_region++;
-  std::cout << std::unitbuf;
-  std::cout << "------------------------------------------------\n";
-  std::cout << "AGENT ID: " << id << std::endl;
-  PrintPercepts(percepts);
+    this->comms = comms;
+    std::cout << std::unitbuf;
+    std::cout << "------------------------------------------------\n";
+    std::cout << "AGENT ID: " << id << std::endl;
+    PrintPercepts(percepts);
 
-  //std::vector<std::string> cmds {"R", "B", "L", "F", "U", "D"};
-  //std::shuffle(cmds.begin(), cmds.end(), *rng);
-  //std::cout << "CMD:      " << cmds[0] << std::endl;
-  std::cout << "max_turn: " << max_turn << " current_turn: " << current_turn << std::endl;  
+    //std::vector<std::string> cmds {"R", "B", "L", "F", "U", "D"};
+    //std::shuffle(cmds.begin(), cmds.end(), *rng);
+    //std::cout << "CMD:      " << cmds[0] << std::endl;
+    std::cout << "max_turn: " << max_turn << " current_turn: " << current_turn << std::endl;
+
+
+    if (pending_teleporter.has_value()) {
+		std::string arr_symbol = percepts.current[0];
+        std::cout << "[REGION DEBUG] departed via '" << pending_teleporter.value()
+            << "' arrived on '" << arr_symbol << "'";
+        teleporter_pairs[pending_teleporter.value()] = arr_symbol;
+        if (symbol_to_region_id.find(arr_symbol) != symbol_to_region_id.end()) {
+            current_region_id = symbol_to_region_id[arr_symbol];
+            std::cout << " -> RECOGNIZED region " << current_region_id << std::endl;
+        }
+        else {
+            regions.push_back(RegionData());
+            current_region_id = (int)regions.size() - 1;
+            symbol_to_region_id[arr_symbol] = current_region_id;
+
+            std::cout << " -> NEW region " << current_region_id << std::endl;
+        }
+
+		pending_teleporter = std::nullopt;
+    }
 
   UpdateMap(percepts);
   auto& known_map = CurrentRegion().known_map;
@@ -711,12 +739,6 @@ std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
           << "): '" << entry.second << "'\n";
   }
 
-  if (pending_teleporter.has_value()) {
-      std::cout << "[TELE] Landed, symbol seen = '" << percepts.current[0] << "'" << std::endl;
-      teleporter_pairs[pending_teleporter.value()] = percepts.current[0];
-      pending_teleporter = std::nullopt;
-
-  }
 
   if (pending_disarm_cell.has_value()) {
       MarkSafe(pending_disarm_cell.value());
@@ -761,6 +783,14 @@ std::vector<std::string> AI::Run(Percepts & percepts,AgentComm * comms) {
       unsigned signal = comms->GetSignal(i);
       DecodeSignal(signal);
   }
+
+  std::cout << "[SETS] headed_to: ";
+  for (auto& s : headed_to_teleporters) std::cout << s << " ";
+  std::cout << "| reached: ";
+  for (auto& s : reached_teleporters) std::cout << s << " ";
+  std::cout << "| used: ";
+  for (auto& s : used_teleporters) std::cout << s << " ";
+  std::cout << std::endl;
  
 
   std::string action = DecideAction(percepts);
